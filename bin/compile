@@ -100,20 +100,22 @@ EOF
 # Read our build environment back in and evaluate it so that we can use it.
 . $BP_DIR/export
 
-# Make the s3simple script executable
-chmod u+x $BP_DIR/lib/s3simple.sh
-chmod u+x $BP_DIR/lib/jq
+# # Make the s3simple script executable
+# chmod u+x $BP_DIR/lib/s3simple.sh
+# chmod u+x $BP_DIR/lib/jq
+chmod u+x $BP_DIR/lib/sccache
 
-# # If bucketeer is installed, use it to cache our dependencies
-# if [ -e "$ENV_DIR/BUCKETEER_AWS_ACCESS_KEY_ID" ]; then
-#   export AWS_ACCESS_KEY_ID="$(cat $ENV_DIR/BUCKETEER_AWS_ACCESS_KEY_ID)"
-#   export AWS_REGION="$(cat $ENV_DIR/BUCKETEER_AWS_REGION)"
-#   export AWS_SECRET_ACCESS_KEY="$(cat $ENV_DIR/BUCKETEER_AWS_SECRET_ACCESS_KEY)"
-#   export BUCKET_NAME="$(cat $ENV_DIR/BUCKETEER_BUCKET_NAME)"
-#   export CACHE_WITH_BUCKETEER=1
-# else
-#   export CACHE_WITH_BUCKETEER=0
-# fi
+# If bucketeer is installed, use it to cache our dependencies
+if [ -e "$ENV_DIR/BUCKETEER_AWS_ACCESS_KEY_ID" ]; then
+  echo "-----> Using sccache locally"
+  export AWS_ACCESS_KEY_ID="$(cat $ENV_DIR/BUCKETEER_AWS_ACCESS_KEY_ID)"
+  export AWS_REGION="$(cat $ENV_DIR/BUCKETEER_AWS_REGION)"
+  export AWS_SECRET_ACCESS_KEY="$(cat $ENV_DIR/BUCKETEER_AWS_SECRET_ACCESS_KEY)"
+  export SCCACHE_BUCKET="$(cat $ENV_DIR/BUCKETEER_BUCKET_NAME)"
+  export SCCACHE_ENDPOINT="https://${SCCACHE_BUCKET}.s3-${AWS_REGION}.amazonaws.com"
+  export RUSTC_WRAPPER="$BP_DIR/lib/sccache"
+  # export SCCACHE_DIR="$CACHE_DIR/sccache"
+fi
 
 # if [ $CACHE_WITH_BUCKETEER -eq 1 ]; then
 #   echo "-----> Checking if there is a build cache archive in the bucket"
@@ -131,29 +133,29 @@ chmod u+x $BP_DIR/lib/jq
 
 # Switch to our cache directory.
 mkdir -p "$CACHE_DIR"
-echo "-----> Listing the content of the cache dir"
-ls -lah "$CACHE_DIR"
+# echo "-----> Listing the content of the cache dir"
+# ls -lah "$CACHE_DIR"
 
-# Check if we have a github access token for fetching a target archive
-if [ -e "$ENV_DIR/GITHUB_ARTIFACT_ACCESS_TOKEN" ]; then
-  echo "-----> Getting an archive of the build cache from Github"
-  cd "$CACHE_DIR"
-  GITHUB_ARTIFACT_ACCESS_TOKEN="$(cat $ENV_DIR/GITHUB_ARTIFACT_ACCESS_TOKEN)"
-  echo "-----> Downloading archive"
-  curl https://api.github.com/repos/bernardstanislas/heroku-buildpack-rust/actions/artifacts --silent \
-    | $BP_DIR/lib/jq '.artifacts[0].archive_download_url' \
-    | xargs wget -qO- --header="Authorization: Bearer $GITHUB_ARTIFACT_ACCESS_TOKEN" \
-    > target.tar.gz.zip
-  echo "-----> Uncompressing archive"
-  unzip -p target.tar.gz.zip \
-    | tar -xzf -
-  rm target.tar.gz.zip
-  echo "-----> Listing the content of the cache dir"
-  ls -lah "$CACHE_DIR"
-  echo "-----> Listing the content of the target dir"
-  ls -lah "$CACHE_DIR/target"
-  ls -lah "$CACHE_DIR/target/release"
-fi
+# # Check if we have a github access token for fetching a target archive
+# if [ -e "$ENV_DIR/GITHUB_ARTIFACT_ACCESS_TOKEN" ]; then
+#   echo "-----> Getting an archive of the build cache from Github"
+#   cd "$CACHE_DIR"
+#   GITHUB_ARTIFACT_ACCESS_TOKEN="$(cat $ENV_DIR/GITHUB_ARTIFACT_ACCESS_TOKEN)"
+#   echo "-----> Downloading archive"
+#   curl https://api.github.com/repos/bernardstanislas/heroku-buildpack-rust/actions/artifacts --silent \
+#     | $BP_DIR/lib/jq '.artifacts[0].archive_download_url' \
+#     | xargs wget -qO- --header="Authorization: Bearer $GITHUB_ARTIFACT_ACCESS_TOKEN" \
+#     > target.tar.gz.zip
+#   echo "-----> Uncompressing archive"
+#   unzip -p target.tar.gz.zip \
+#     | tar -xzf -
+#   rm target.tar.gz.zip
+#   echo "-----> Listing the content of the cache dir"
+#   ls -lah "$CACHE_DIR"
+#   echo "-----> Listing the content of the target dir"
+#   ls -lah "$CACHE_DIR/target"
+#   ls -lah "$CACHE_DIR/target/release"
+# fi
 
 # Make sure we have an appropriate Rust toolchain installed.
 if [ -d "$CARGO_HOME" ]; then
@@ -200,6 +202,8 @@ if [ $RUST_SKIP_BUILD -ne 1 ]; then
   # tar -cf target.tar -C "$CACHE_DIR" target
   # echo "-----> Removing the target dir to avoid it being cached"
   # rm -rf "$CARGO_TARGET_DIR"
+  echo "-----> Printing sccache stats"
+  $BP_DIR/lib/sccache --show-stats
 else
   echo "-----> Skipping Cargo build"
 fi
